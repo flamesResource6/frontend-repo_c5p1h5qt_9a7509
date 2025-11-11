@@ -1,5 +1,5 @@
-import React from 'react'
-import Spline from '@splinetool/react-spline'
+import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { motion, useScroll, useTransform } from 'framer-motion'
 import { Wrench, BatteryCharging, KeyRound, Fuel, LifeBuoy, Clock, MapPin, Phone, ShieldCheck, ArrowRight, Star } from 'lucide-react'
 
 function Stat({ value, label }) {
@@ -11,9 +11,15 @@ function Stat({ value, label }) {
   )
 }
 
-function ServiceCard({ icon: Icon, title, description }) {
+function ServiceCard({ icon: Icon, title, description, index }) {
   return (
-    <div className="group relative rounded-2xl border border-white/20 bg-white/70 backdrop-blur-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <motion.div
+      initial={{ opacity: 0, y: 24 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{ duration: 0.5, delay: 0.05 * index, ease: 'easeOut' }}
+      className="group relative rounded-2xl border border-white/20 bg-white/70 md:backdrop-blur-xl p-6 shadow-sm hover:shadow-md transition-shadow"
+    >
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-blue-50/0 to-indigo-50/0 group-hover:from-blue-50/60 group-hover:to-indigo-50/40 transition-colors"></div>
       <div className="relative">
         <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white grid place-items-center shadow-md">
@@ -22,17 +28,88 @@ function ServiceCard({ icon: Icon, title, description }) {
         <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
         <p className="mt-2 text-sm leading-relaxed text-gray-600">{description}</p>
       </div>
+    </motion.div>
+  )
+}
+
+function useReducedMotionPref() {
+  const [prefersReduced, setPrefersReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = () => setPrefersReduced(!!mq.matches)
+    onChange()
+    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange)
+    return () => {
+      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange)
+    }
+  }, [])
+  return prefersReduced
+}
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const update = () => setIsMobile(window.innerWidth < 1024)
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+  return isMobile
+}
+
+function SplineBackground() {
+  const prefersReduced = useReducedMotionPref()
+  const isMobile = useIsMobile()
+  const shouldLoadSpline = !prefersReduced && !isMobile
+
+  const [SplineComp, setSplineComp] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (shouldLoadSpline) {
+      import('@splinetool/react-spline').then((mod) => {
+        if (!cancelled) setSplineComp(() => mod.default)
+      }).catch(() => {})
+    }
+    return () => { cancelled = true }
+  }, [shouldLoadSpline])
+
+  if (!shouldLoadSpline) {
+    return (
+      <div className="absolute inset-0">
+        <img
+          src="https://images.unsplash.com/photo-1542365887-65c0b5d8f324?q=80&w=1920&auto=format&fit=crop"
+          alt="Road in the desert"
+          className="h-full w-full object-cover"
+          loading="eager"
+          decoding="async"
+        />
+      </div>
+    )
+  }
+
+  if (!SplineComp) return null
+
+  const Spline = SplineComp
+  return (
+    <div className="absolute inset-0">
+      <Spline scene="https://prod.spline.design/dRBdpY8aSqcdPO2y/scene.splinecode" style={{ width: '100%', height: '100%' }} />
     </div>
   )
 }
 
 export default function App() {
+  const heroRef = useRef(null)
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] })
+  const yParallax = useTransform(scrollYProgress, [0, 1], [0, -80])
+  const opacityParallax = useTransform(scrollYProgress, [0, 1], [1, 0.85])
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-white text-gray-900">
       {/* Header */}
       <header className="fixed top-0 left-0 right-0 z-50">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mt-4 rounded-2xl border border-white/30 bg-white/70 backdrop-blur-xl shadow-lg">
+          <div className="mt-4 rounded-2xl border border-white/30 bg-white/80 md:bg-white/70 md:backdrop-blur-xl shadow-lg">
             <div className="flex items-center justify-between px-6 py-4">
               <a href="#" className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 grid place-items-center text-white font-bold">A</div>
@@ -68,33 +145,51 @@ export default function App() {
         </div>
       </header>
 
-      {/* Hero with Spline cover */}
-      <section className="relative min-h-[88vh] flex items-center" id="hero">
-        <div className="absolute inset-0">
-          <Spline scene="https://prod.spline.design/dRBdpY8aSqcdPO2y/scene.splinecode" style={{ width: '100%', height: '100%' }} />
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/50 to-white pointer-events-none"></div>
-        <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 w-full">
+      {/* Hero with Spline cover or lightweight image fallback + parallax */}
+      <section ref={heroRef} className="relative min-h-[88vh] flex items-center" id="hero">
+        <SplineBackground />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/30 via-white/50 to-white pointer-events-none" />
+        <motion.div style={{ y: yParallax, opacity: opacityParallax }} className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 w-full">
           <div className="grid lg:grid-cols-12 gap-8 items-center pt-36 pb-20">
             <div className="lg:col-span-7">
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/70 backdrop-blur px-3 py-1 text-xs text-blue-700 shadow-sm">
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+                className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/70 md:backdrop-blur px-3 py-1 text-xs text-blue-700 shadow-sm"
+              >
                 <MapPin className="h-3.5 w-3.5" /> Jacksonville’s on-demand roadside help
-              </div>
-              <h1 className="mt-4 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-gray-900">
+              </motion.div>
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.05, ease: 'easeOut' }}
+                className="mt-4 text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-gray-900"
+              >
                 Fast roadside assistance when you need it most
-              </h1>
-              <p className="mt-4 text-base sm:text-lg leading-relaxed text-gray-700 max-w-2xl">
+              </motion.h1>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
+                className="mt-4 text-base sm:text-lg leading-relaxed text-gray-700 max-w-2xl"
+              >
                 Dead battery? Locked out? Flat tire? AVA Autoline gets you back on the road quickly anywhere in Jacksonville, Florida.
-              </p>
+              </motion.p>
 
-              <div className="mt-6 flex flex-col sm:flex-row gap-3">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.15, ease: 'easeOut' }}
+                className="mt-6 flex flex-col sm:flex-row gap-3"
+              >
                 <a href="tel:+19045551234" className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-white font-semibold shadow-sm hover:bg-blue-700 transition">
                   <Phone className="h-5 w-5" /> Call 24/7 Dispatch
                 </a>
                 <a href="#services" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-3 text-blue-700 font-semibold shadow-sm ring-1 ring-blue-200 hover:bg-blue-50 transition">
                   Explore Services <ArrowRight className="h-5 w-5" />
                 </a>
-              </div>
+              </motion.div>
 
               <div className="mt-8 grid grid-cols-3 sm:grid-cols-3 gap-6 max-w-lg">
                 <Stat value="15-45 min" label="Typical ETA" />
@@ -104,11 +199,17 @@ export default function App() {
             </div>
 
             <div className="lg:col-span-5 mt-6 lg:mt-0">
-              <div className="rounded-2xl bg-white/70 backdrop-blur-xl border border-white/30 p-5 shadow-lg">
+              <motion.div
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.3 }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="rounded-2xl bg-white/80 md:bg-white/70 md:backdrop-blur-xl border border-white/30 p-5 shadow-lg"
+              >
                 <div className="flex items-center gap-2 text-sm text-gray-600"><LifeBuoy className="h-4 w-4 text-blue-600" /> Instant help request</div>
                 <form className="mt-4 grid grid-cols-1 gap-3">
                   <input className="rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200" placeholder="Your name" />
-                  <input className="rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200" placeholder="Phone number" />
+                  <input className="rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200" placeholder="Phone number" inputMode="tel" />
                   <input className="rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200" placeholder="Location (Jacksonville area)" />
                   <select className="rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-200">
                     <option>Dead battery / Jump start</option>
@@ -122,10 +223,10 @@ export default function App() {
                   </button>
                   <p className="text-xs text-gray-500">Submitting this form will prompt a direct call from our dispatcher.</p>
                 </form>
-              </div>
+              </motion.div>
             </div>
           </div>
-        </div>
+        </motion.div>
       </section>
 
       {/* Services */}
@@ -138,12 +239,12 @@ export default function App() {
           </div>
 
           <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            <ServiceCard icon={BatteryCharging} title="Jump starts" description="Quick, safe battery boosts to get you moving again." />
-            <ServiceCard icon={KeyRound} title="Car lockout" description="Locked keys inside? We unlock vehicles damage-free." />
-            <ServiceCard icon={Wrench} title="Flat tire change" description="Spare tire installs and tire assistance roadside." />
-            <ServiceCard icon={Fuel} title="Fuel delivery" description="Ran out of gas? We deliver fuel to your location." />
-            <ServiceCard icon={Clock} title="Emergency towing" description="Coordinated towing when roadside repair isn’t possible." />
-            <ServiceCard icon={ShieldCheck} title="Safety check" description="We ensure you’re safe and ready before you drive off." />
+            <ServiceCard index={0} icon={BatteryCharging} title="Jump starts" description="Quick, safe battery boosts to get you moving again." />
+            <ServiceCard index={1} icon={KeyRound} title="Car lockout" description="Locked keys inside? We unlock vehicles damage-free." />
+            <ServiceCard index={2} icon={Wrench} title="Flat tire change" description="Spare tire installs and tire assistance roadside." />
+            <ServiceCard index={3} icon={Fuel} title="Fuel delivery" description="Ran out of gas? We deliver fuel to your location." />
+            <ServiceCard index={4} icon={Clock} title="Emergency towing" description="Coordinated towing when roadside repair isn’t possible." />
+            <ServiceCard index={5} icon={ShieldCheck} title="Safety check" description="We ensure you’re safe and ready before you drive off." />
           </div>
         </div>
       </section>
@@ -166,11 +267,17 @@ export default function App() {
               </ul>
             </div>
             <div className="lg:col-span-6">
-              <div className="relative rounded-2xl border border-white/30 bg-white p-3 shadow-lg">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true, amount: 0.3 }}
+                transition={{ duration: 0.6, ease: 'easeOut' }}
+                className="relative rounded-2xl border border-white/30 bg-white p-3 shadow-lg"
+              >
                 <div className="aspect-[16/10] w-full overflow-hidden rounded-xl">
-                  <img alt="Jacksonville skyline" src="https://images.unsplash.com/photo-1468436139062-f60a71c5c892?q=80&w=1400&auto=format&fit=crop" className="h-full w-full object-cover" />
+                  <img alt="Jacksonville skyline" src="https://images.unsplash.com/photo-1468436139062-f60a71c5c892?q=80&w=1400&auto=format&fit=crop" className="h-full w-full object-cover" loading="lazy" decoding="async" />
                 </div>
-              </div>
+              </motion.div>
             </div>
           </div>
         </div>
@@ -185,22 +292,22 @@ export default function App() {
           </div>
 
           <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
+            <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }} className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
               <div className="text-blue-600 font-semibold">Rapid response</div>
               <p className="mt-2 text-sm text-gray-600">Average arrival in 15–45 minutes depending on location and traffic.</p>
-            </div>
-            <div className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.55 }} className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
               <div className="text-blue-600 font-semibold">Certified techs</div>
               <p className="mt-2 text-sm text-gray-600">Experienced professionals with the right tools for modern vehicles.</p>
-            </div>
-            <div className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.6 }} className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
               <div className="text-blue-600 font-semibold">Upfront pricing</div>
               <p className="mt-2 text-sm text-gray-600">Clear quotes before service begins—no surprises.</p>
-            </div>
-            <div className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
+            </motion.div>
+            <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.65 }} className="rounded-2xl bg-white p-6 border border-white/30 shadow-sm">
               <div className="text-blue-600 font-semibold">Safety first</div>
               <p className="mt-2 text-sm text-gray-600">We prioritize you and your vehicle’s safety at every step.</p>
-            </div>
+            </motion.div>
           </div>
 
           <div className="mt-12 flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -218,7 +325,13 @@ export default function App() {
       {/* Contact CTA */}
       <section id="contact" className="py-20">
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <div className="relative overflow-hidden rounded-3xl border border-white/30 bg-gradient-to-br from-blue-600 to-indigo-600 p-8 sm:p-12 text-white">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
+            className="relative overflow-hidden rounded-3xl border border-white/30 bg-gradient-to-br from-blue-600 to-indigo-600 p-8 sm:p-12 text-white"
+          >
             <div className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
             <div className="relative grid lg:grid-cols-12 gap-8 items-center">
               <div className="lg:col-span-8">
@@ -231,7 +344,7 @@ export default function App() {
                 </a>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
 
